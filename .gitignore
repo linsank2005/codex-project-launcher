@@ -1,0 +1,12 @@
+node_modules/
+.tmp/
+artifacts/*.json
+*.log
+release/
+.env
+.env.*
+!.env.example
+projects.json
+launches.json
+runtime.json
+*-backups/

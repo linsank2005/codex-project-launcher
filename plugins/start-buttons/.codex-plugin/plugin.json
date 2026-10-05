@@ -1,0 +1,22 @@
+{
+  "name": "start-buttons",
+  "version": "0.2.3",
+  "description": "Codex Project Launcher：集中管理 Windows 本地项目的原有启动入口。",
+  "author": { "name": "Codex Project Launcher" },
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Codex Project Launcher",
+    "shortDescription": "集中起停项目，一眼查看运行状态",
+    "longDescription": "保存 Windows 原启动脚本、快捷方式和 PowerShell 命令，集中启动、查看状态、正常停止和重启。",
+    "developerName": "Codex Project Launcher",
+    "category": "Productivity",
+    "defaultPrompt": ["打开项目启动台"],
+    "brandColor": "#4D6D28",
+    "brandColorDark": "#D9F99D",
+    "composerIcon": "./assets/icon.svg",
+    "composerIconDark": "./assets/icon.svg",
+    "logo": "./assets/icon.svg",
+    "logoDark": "./assets/icon.svg"
+  }
+}

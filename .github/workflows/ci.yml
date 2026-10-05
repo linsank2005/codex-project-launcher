@@ -1,0 +1,21 @@
+name: Windows checks
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run check
+      - run: npm run release:prepare
+      - uses: actions/upload-artifact@v4
+        with:
+          name: codex-project-launcher-windows
+          path: release/*.zip

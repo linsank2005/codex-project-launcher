@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>项目启动台</title>
+  <link rel="icon" type="image/svg+xml" href="/*PROJECT_DOCK_ICON*/">
+  <style>/*START_BUTTONS_CSS*/</style>
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div class="brand"><img class="brand-mark" src="/*PROJECT_DOCK_ICON*/" alt="" aria-hidden="true"><h1>项目启动台</h1><span id="version" class="version"></span></div>
+      <button id="add" class="primary"><svg class="action-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4v12M4 10h12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><span>添加项目</span></button>
+    </header>
+    <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
+    <div class="status-bar"><div id="running-summary" class="status-summary" role="status" aria-live="polite">正在检查…</div><div class="status-actions"><small id="checked-at">每 5 秒更新</small><button type="button" id="refresh" class="secondary refresh-button" aria-label="刷新状态" title="刷新状态"><svg class="action-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M16 8a6.3 6.3 0 0 0-10.6-3L3 7m0-4v4h4M4 12a6.3 6.3 0 0 0 10.6 3L17 13m-4 0h4v4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div></div>
+    <section id="grid" class="grid" aria-label="项目快捷入口"></section>
+    <section id="empty" class="empty" hidden><img class="empty-mark" src="/*PROJECT_DOCK_ICON*/" alt="" aria-hidden="true"><h2>添加第一个项目</h2><p>填写已有的启动文件，或粘贴原来的 PowerShell 命令。</p><button id="first-add" class="primary">＋ 添加项目</button></section>
+    <footer><span id="count">正在连接…</span><span>启动后在原终端或程序窗口中运行</span></footer>
+  </main>
+  <dialog id="editor" aria-labelledby="dialog-title">
+    <form id="form">
+      <div class="dialog-head"><h2 id="dialog-title">添加项目</h2><button type="button" id="close" class="icon-button" aria-label="关闭编辑">×</button></div>
+      <div class="name-row"><label class="icon-field">图标<input name="icon" aria-label="图标" maxlength="24" value="🚀"></label><label class="name-field">项目名称<input name="name" aria-label="项目名称" placeholder="例如：选题面板" maxlength="80" required></label></div>
+      <fieldset class="icon-picker"><legend>选择图标，也可在上方输入自定义图标</legend><div id="icon-choices" class="icon-choices"></div></fieldset>
+      <label>启动方式<select name="type" aria-label="启动方式"><option value="file">已有启动文件 / 快捷方式</option><option value="command">原有 PowerShell 命令</option></select></label>
+      <label id="path-field">入口文件<input name="path" aria-label="入口文件" placeholder="E:\项目\启动.ps1" autocomplete="off"><small>支持 .ps1、.cmd、.bat、.lnk、.exe、.url</small></label>
+      <label id="command-field" hidden>启动命令<textarea name="command" aria-label="启动命令" placeholder="npm run dev" rows="3"></textarea><small>粘贴你原来在 PowerShell 中使用的命令。</small></label>
+      <label>项目目录 <span id="cwd-hint">（可选）</span><input name="cwd" aria-label="项目目录" placeholder="E:\项目" autocomplete="off"><small id="cwd-description">脚本默认在入口文件所在目录启动；快捷方式沿用自身配置。</small></label>
+      <details id="status-fields"><summary>运行状态检查（可选）</summary><label>本地服务地址<input name="healthUrl" aria-label="本地服务地址" placeholder="http://127.0.0.1:3000/" autocomplete="off"><small>填写此项目的页面或健康地址。面板会核验地址与项目的关联；无法确认时显示“待确认”。地址已有服务时暂停启动，关闭原服务后即可重新启动。</small></label></details>
+      <details><summary>停止方式（可选）</summary><label>原项目的 PowerShell 停止命令<textarea name="stopCommand" aria-label="停止命令" rows="2" placeholder="填写原项目提供的停止命令"></textarea><small>留空时尝试向已核验的独立终端发送 Ctrl+C。填写后在项目目录执行此命令，仍需确认业务进程退出；不会强制结束。</small></label></details>
+      <p id="form-error" class="form-error" role="alert" hidden></p>
+      <div class="dialog-actions"><button type="button" id="remove" class="danger" hidden>移除入口</button><span class="spacer"></span><button type="button" id="cancel" class="secondary">取消</button><button type="submit" id="save" class="primary">保存入口</button></div>
+    </form>
+  </dialog>
+  <dialog id="status-dialog" aria-labelledby="status-title">
+    <div class="dialog-head"><h2 id="status-title">项目运行详情</h2><button type="button" id="status-close" class="icon-button" aria-label="关闭运行详情">×</button></div>
+    <p id="status-label" class="detail-state"></p>
+    <p id="status-detail"></p>
+    <p id="status-suggestion" class="detail-suggestion"></p>
+    <small>最近检查：<span id="status-time"></span></small>
+  </dialog>
+  <script>window.START_BUTTONS_CONFIG = /*START_BUTTONS_CONFIG*/;</script>
+  <script>/*START_BUTTONS_JS*/</script>
+</body>
+</html>

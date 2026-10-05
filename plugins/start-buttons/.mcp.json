@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "start_buttons": {
+      "command": "node.exe",
+      "args": ["./dist/mcp.mjs"],
+      "cwd": ".",
+      "env_vars": ["LOCALAPPDATA", "USERPROFILE", "PATH"],
+      "startup_timeout_sec": 15,
+      "tool_timeout_sec": 60
+    }
+  }
+}
