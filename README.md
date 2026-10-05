@@ -47,7 +47,7 @@
 ## 开发
 
 ```powershell
-npm ci --ignore-scripts
+npm ci --ignore-scripts --no-audit --no-fund
 npm run check
 npm run release:prepare
 ```
