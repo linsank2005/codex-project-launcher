@@ -24,6 +24,7 @@ for (const [entry, output] of [['src/panel-entry.mjs', 'panel.mjs'], ['src/mcp.m
 }
 await copyFile('src/launch.ps1', `${out}/launch.ps1`);
 await copyFile('src/stop-console.ps1', `${out}/stop-console.ps1`);
+await copyFile('src/upgrade-panel.ps1', `${out}/upgrade-panel.ps1`);
 await writeThirdPartyNotices();
 await copyFile('THIRD_PARTY_NOTICES.txt', 'plugins/start-buttons/THIRD_PARTY_NOTICES.txt');
 await copyFile('LICENSE', 'plugins/start-buttons/LICENSE');

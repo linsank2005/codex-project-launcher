@@ -1,8 +1,30 @@
 # 使用与排错
 
-## 手动安装插件
+## GitHub 市场安装（推荐）
 
-推荐下载 Windows 使用包并双击 `安装插件.cmd`。也可以在解压目录的 PowerShell 中运行：
+在 Codex 的插件设置中选择 Add plugin marketplace：Source 填 `https://github.com/linsank2005/codex-project-launcher.git`，Git ref 填 `main`，Sparse paths 留空。添加后选择 Codex Project Launcher 并安装；新建聊天，输入“使用 Codex Project Launcher 打开项目启动台”。
+
+插件已包含构建产物，不需要下载 ZIP 或安装 npm 依赖。Node.js 22+ 优先使用 Codex 自带运行环境，再查找本机安装；PowerShell 7 也会检查本机及 Codex 运行环境。没有可用环境时安装对应程序并重启 Codex。
+
+旧版本通过安装器添加的市场与 GitHub 市场使用同一标识。添加 GitHub 来源后，在设置中确认市场来源为上述仓库，再更新插件；无需删除个人项目入口。
+
+## 更新
+
+刷新 GitHub 市场并更新插件后，在新聊天中打开面板。插件自动核验并切换旧面板：支持新版本的面板通过带令牌的正常关闭接口退出；0.2.3 及更早版本按监听端口、进程身份和插件路径核验后，仅结束旧面板本身。
+
+业务起停操作未结束时拒绝切换；无法核验归属时保留旧进程并给出提示。旧聊天不会把较新的面板降级。原有项目配置和业务进程保留。
+
+客户端没有市场刷新入口时，可在安装了 Codex CLI 的 PowerShell 中执行：
+
+```powershell
+codex plugin marketplace upgrade start-buttons-local
+```
+
+然后更新插件并新建聊天。缓存被占用时重启 Codex 后重试；不要重复安装同一版本来覆盖仍在使用的缓存。
+
+## 备用安装
+
+下载 Windows 使用包并双击 `安装插件.cmd`；此方式需要另外安装 Codex CLI。也可以在解压目录的 PowerShell 中运行：
 
 ```powershell
 codex plugin marketplace add .
@@ -11,7 +33,7 @@ codex plugin add start-buttons@start-buttons-local
 
 安装后新建 Codex 聊天，输入“使用 Codex Project Launcher 打开项目启动台”。这两个内部标识沿用旧版本，个人配置目录也保持不变。
 
-发布到 GitHub 后也可添加仓库 marketplace：
+使用 CLI 添加 GitHub 市场：
 
 ```powershell
 codex plugin marketplace add linsank2005/codex-project-launcher --ref main
@@ -59,6 +81,6 @@ codex plugin add start-buttons@start-buttons-local
 
 备份时复制数据目录；这些文件不要上传公开仓库。也可使用 `START_BUTTONS_DATA_DIR` 指定独立数据目录、`START_BUTTONS_PORT` 指定端口，端口为 `0` 时自动分配。
 
-更新包解压到固定位置，重新运行安装器；刷新网页或重新打开嵌入面板。若同一版本的缓存被占用，关闭面板、重启 Codex 后重试。关闭或更新面板不会停止业务项目。
+市场安装按上面的“更新”步骤操作；备用安装将更新包解压到固定位置，再运行安装器。刷新网页或重新打开嵌入面板。关闭或更新面板不会停止业务项目。
 
 配置或运行记录损坏时原文件会保留并报错。先关闭面板并备份，再恢复配置；仅运行记录损坏时，移开 `launches.json` 可重建关联，项目列表仍保留。

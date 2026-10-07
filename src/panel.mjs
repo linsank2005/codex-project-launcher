@@ -9,6 +9,7 @@ import { VERSION } from './version.mjs';
 import { checkProjectStatuses, launchKey } from './status.mjs';
 import { LaunchJournal } from './launch-journal.mjs';
 import { stopProject } from './stop.mjs';
+import { compareVersions } from './versions.mjs';
 
 export const DEFAULT_PORT = 47831;
 const root = path.dirname(fileURLToPath(import.meta.url));
@@ -51,7 +52,7 @@ export async function createPanelServer({ dataDir = getDataDir(), port = DEFAULT
     const projects = await store.list();
     return { projects, statuses: await liveStatuses(projects), launches: Object.fromEntries(launches) };
   };
-  let info;
+  let info, close, closePromise, closing = false;
   const server = http.createServer(async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -70,6 +71,7 @@ export async function createPanelServer({ dataDir = getDataDir(), port = DEFAULT
         return res.end(pageHtml(template, { mode: 'local', token, url: info.url }));
       }
       if (req.headers['x-start-buttons-token'] !== token) return json(403, { error: '面板授权已失效，请重新打开面板。' });
+      if (closing) return json(503, { error: '面板正在更新，请重新打开插件。' });
       if (req.method === 'GET' && pathname === '/api/health') return json(200, { app: 'start-buttons', version: VERSION, dataDir });
       if (req.method === 'GET' && pathname === '/api/projects') return json(200, await snapshot());
       if (req.method !== 'POST') return json(404, { error: '接口不存在。' });
@@ -82,6 +84,14 @@ export async function createPanelServer({ dataDir = getDataDir(), port = DEFAULT
       if (bodySize > 65536) return json(413, { error: '请求内容过大。' });
       let input;
       try { input = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { return json(400, { error: '请求格式不正确。' }); }
+      if (pathname === '/api/shutdown') {
+        if (compareVersions(input?.targetVersion, VERSION) <= 0) return json(409, { error: '只有新版插件可以更新面板，旧聊天不会降级面板。' });
+        if (inFlight.size) return json(409, { error: '项目操作尚未完成，请稍后再打开新版面板。' });
+        closing = true;
+        await journal.queue;
+        res.once('finish', () => { void close(); });
+        return json(200, { stopping: true });
+      }
       if (pathname === '/api/save') return json(200, { project: await store.save(input), ...await snapshot() });
       if (pathname === '/api/remove') { await store.remove(input.id); launches.delete(input.id); await journal.save(); return json(200, await snapshot()); }
       if (['/api/launch', '/api/stop', '/api/restart'].includes(pathname)) {
@@ -124,14 +134,17 @@ export async function createPanelServer({ dataDir = getDataDir(), port = DEFAULT
   info = { app: 'start-buttons', version: VERSION, port: server.address().port, token, url: `http://127.0.0.1:${server.address().port}/`, pid: process.pid, dataDir };
   await mkdir(dataDir, { recursive: true });
   await writeFile(path.join(dataDir, 'runtime.json'), JSON.stringify(info), { mode: 0o600 });
-  return { server, store, info, close: async () => {
+  close = () => closePromise ??= (async () => {
+    closing = true;
+    await journal.queue;
     server.closeAllConnections();
     await new Promise(resolve => server.close(resolve));
     try {
       const record = JSON.parse(await readFile(path.join(dataDir, 'runtime.json'), 'utf8'));
       if (record.token === token) await unlink(path.join(dataDir, 'runtime.json'));
     } catch { /* Another instance may already have replaced its record. */ }
-  } };
+  })();
+  return { server, store, info, close };
 }
 export async function currentPanel(dataDir = getDataDir()) {
   try {

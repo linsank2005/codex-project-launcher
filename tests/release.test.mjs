@@ -14,7 +14,7 @@ test('public source is complete and excludes local history, discovery scripts, c
   const source = await releaseFiles(process.cwd(), true), windows = await releaseFiles(process.cwd(), false);
   const names = new Set(source.map(f => f.name));
   for (const name of ['LICENSE', 'THIRD_PARTY_NOTICES.txt', 'docs/assets/project-launcher-demo.png', 'docs/USAGE.md', '.agents/plugins/marketplace.json', 'plugins/start-buttons/.mcp.json',
-    'plugins/start-buttons/.codex-plugin/plugin.json', 'plugins/start-buttons/dist/stop-console.ps1', 'scripts/build.mjs',
+    'plugins/start-buttons/.codex-plugin/plugin.json', 'plugins/start-buttons/dist/stop-console.ps1', 'plugins/start-buttons/dist/upgrade-panel.ps1', 'plugins/start-buttons/scripts/start-mcp.ps1', 'scripts/build.mjs',
     'tests/lifecycle-native.test.mjs', 'src/launch-journal.mjs', '.github/workflows/ci.yml']) assert.ok(names.has(name), name);
   assert.ok(!names.has('scripts/seed-discovered.mjs'));
   assert.ok(!source.some(f => f.name.startsWith('artifacts/') || f.name.startsWith('.git/')));

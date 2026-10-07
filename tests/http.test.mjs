@@ -3,8 +3,26 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import { createPanelServer, currentPanel } from '../src/panel.mjs';
 import { tempDir } from './helpers.mjs';
+import { VERSION } from '../src/version.mjs';
 
 const template = '<script>window.START_BUTTONS_CONFIG = /*START_BUTTONS_CONFIG*/;</script>';
+test('panel upgrades require authentication, a newer version and no unfinished project operation', async t => {
+  let finish;
+  const panel = await setup(t, () => new Promise(resolve => { finish = resolve; }), async projects =>
+    Object.fromEntries(projects.map(p => [p.id, { state: 'offline', canLaunch: true }])));
+  const newer = `${VERSION.split('.').slice(0, 2).join('.')}.${Number(VERSION.split('.')[2]) + 1}`;
+  assert.equal((await panel.call('shutdown', { targetVersion: newer }, { 'x-start-buttons-token': 'wrong' })).status, 403);
+  assert.equal((await panel.call('shutdown', { targetVersion: VERSION })).status, 409);
+  assert.equal((await panel.call('shutdown', { targetVersion: 'invalid' })).status, 400);
+  const { project } = await (await panel.call('save', { name: 'busy', type: 'command', command: 'original', cwd: panel.dataDir })).json();
+  const launching = panel.call('launch', { id: project.id });
+  while (!finish) await new Promise(resolve => setTimeout(resolve, 10));
+  assert.equal((await panel.call('shutdown', { targetVersion: newer })).status, 409);
+  finish({ accepted: true }); await launching;
+  assert.equal((await panel.call('shutdown', { targetVersion: newer })).status, 200);
+  await panel.close();
+  assert.equal(await currentPanel(panel.dataDir), null);
+});
 async function setup(t, launch, checkStatuses) {
   const dataDir = await tempDir(t);
   const panel = await createPanelServer({ dataDir, port: 0, template, launch, checkStatuses });

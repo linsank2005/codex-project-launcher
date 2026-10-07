@@ -1,10 +1,10 @@
 {
   "mcpServers": {
     "start_buttons": {
-      "command": "node.exe",
-      "args": ["./dist/mcp.mjs"],
+      "command": "powershell.exe",
+      "args": ["-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", "./scripts/start-mcp.ps1"],
       "cwd": ".",
-      "env_vars": ["LOCALAPPDATA", "USERPROFILE", "PATH"],
+      "env_vars": ["LOCALAPPDATA", "USERPROFILE", "PATH", "SystemRoot", "ProgramFiles", "ProgramW6432", "CODEX_HOME"],
       "startup_timeout_sec": 15,
       "tool_timeout_sec": 60
     }
