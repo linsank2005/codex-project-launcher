@@ -59,7 +59,7 @@ public static class ProjectDockStop {
             if (!PeekConsoleInput(handle, queued, (uint)queued.Length, out read) || read == queued.Length) throw new InvalidOperationException("Cannot verify console input.");
             for (int i=0; i<read; i++) if (queued[i].Type == 1 && queued[i].Down != 0 && queued[i].Character != '\0') throw new InvalidOperationException("Console input is already pending; answer in the original window.");
             var current = Prompt();
-            if (current == null || current[0] != prompt || current[1] != position) throw new InvalidOperationException("Console prompt changed; no answer sent.");
+            if (current == null || current[0] != prompt || current[1] != position) throw new InvalidOperationException("Console prompt changed; no answer sent. Expected [" + prompt + "] at [" + position + "], current [" + (current == null ? "none" : string.Join(" | ", current)) + "].");
             var events = new Input[4]; var chars = new[] { yes ? 'Y' : 'N', '\r' };
             for (int i=0; i<events.Length; i++) events[i] = new Input { Type=1, Down=i%2 == 0 ? 1 : 0, Repeat=1, Key=(short)chars[i/2], Character=chars[i/2] };
             uint written;
