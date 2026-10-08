@@ -6,10 +6,8 @@ try {
 Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
-using System.Text;
 using System.Text.RegularExpressions;
 public static class ProjectDockStop {
-    static string lastRead;
     [DllImport("kernel32.dll", SetLastError=true)] public static extern bool FreeConsole();
     [DllImport("kernel32.dll", SetLastError=true)] public static extern bool AttachConsole(uint processId);
     [DllImport("kernel32.dll", SetLastError=true)] public static extern uint GetConsoleProcessList([Out] uint[] ids, uint size);
@@ -18,7 +16,7 @@ public static class ProjectDockStop {
     [StructLayout(LayoutKind.Sequential)] public struct Coord { public short X, Y; }
     [StructLayout(LayoutKind.Sequential)] public struct Rect { public short Left, Top, Right, Bottom; }
     [StructLayout(LayoutKind.Sequential)] public struct Screen { public Coord Size, Cursor; public short Attributes; public Rect Window; public Coord Maximum; }
-    [StructLayout(LayoutKind.Explicit, Size=20)] public struct Input {
+    [StructLayout(LayoutKind.Explicit, Size=20, CharSet=CharSet.Unicode)] public struct Input {
         [FieldOffset(0)] public short Type;
         [FieldOffset(4)] public int Down;
         [FieldOffset(8)] public short Repeat;
@@ -30,7 +28,7 @@ public static class ProjectDockStop {
     [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)] static extern IntPtr CreateFile(string name, uint access, uint share, IntPtr security, uint creation, uint flags, IntPtr template);
     [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr handle);
     [DllImport("kernel32.dll", SetLastError=true)] static extern bool GetConsoleScreenBufferInfo(IntPtr handle, out Screen info);
-    [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)] static extern bool ReadConsoleOutputCharacter(IntPtr handle, StringBuilder text, uint length, Coord start, out uint read);
+    [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)] static extern bool ReadConsoleOutputCharacter(IntPtr handle, [Out] char[] text, uint length, Coord start, out uint read);
     [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)] static extern bool WriteConsoleInput(IntPtr handle, Input[] events, uint length, out uint written);
     [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)] static extern bool PeekConsoleInput(IntPtr handle, [Out] Input[] events, uint length, out uint read);
     static IntPtr Open(string name, uint access) {
@@ -43,14 +41,14 @@ public static class ProjectDockStop {
         try {
             Screen info;
             if (!GetConsoleScreenBufferInfo(handle, out info)) throw new InvalidOperationException("Cannot read console cursor.");
-            lastRead = "cursor=" + info.Cursor.Y + ":" + info.Cursor.X + ", size=" + info.Size.X + ":" + info.Size.Y;
             var start = new Coord { X = 0, Y = (short)Math.Max(0, info.Cursor.Y - 3) };
             var length = (uint)((info.Cursor.Y - start.Y) * info.Size.X + info.Cursor.X);
             if (length == 0 || length > 16384) return null;
-            var text = new StringBuilder((int)length); uint read;
+            var text = new char[length]; uint read;
             if (!ReadConsoleOutputCharacter(handle, text, length, start, out read)) throw new InvalidOperationException("Cannot read console prompt.");
+            // The console returns a character count, not a null-terminated string.
             // ponytail: Only standard English/Chinese CMD stop prompts; custom prompts need a project stop command.
-            var match = Regex.Match(text.ToString().Replace("\0", ""), @"(?:Terminate\s+batch\s+job|终止批处理(?:操作|作业)吗)\s*[（(]\s*Y\s*/\s*N\s*[)）]\s*[?？]\s*$", RegexOptions.IgnoreCase);
+            var match = Regex.Match(new string(text, 0, (int)read).Replace("\0", ""), @"(?:Terminate\s+batch\s+job|终止批处理(?:操作|作业)吗)\s*[（(]\s*Y\s*/\s*N\s*[)）]\s*[?？]\s*$", RegexOptions.IgnoreCase);
             return match.Success ? new[] { match.Value.Trim(), info.Cursor.Y + ":" + info.Cursor.X } : null;
         } finally { CloseHandle(handle); }
     }
@@ -61,7 +59,7 @@ public static class ProjectDockStop {
             if (!PeekConsoleInput(handle, queued, (uint)queued.Length, out read) || read == queued.Length) throw new InvalidOperationException("Cannot verify console input.");
             for (int i=0; i<read; i++) if (queued[i].Type == 1 && queued[i].Down != 0 && queued[i].Character != '\0') throw new InvalidOperationException("Console input is already pending; answer in the original window.");
             var current = Prompt();
-            if (current == null || current[0] != prompt || current[1] != position) throw new InvalidOperationException("Console prompt changed; no answer sent. Expected [" + prompt + "] at [" + position + "], current [" + (current == null ? "none" : string.Join(" | ", current)) + "], " + lastRead + ".");
+            if (current == null || current[0] != prompt || current[1] != position) throw new InvalidOperationException("Console prompt changed; no answer sent.");
             var events = new Input[4]; var chars = new[] { yes ? 'Y' : 'N', '\r' };
             for (int i=0; i<events.Length; i++) events[i] = new Input { Type=1, Down=i%2 == 0 ? 1 : 0, Repeat=1, Key=(short)chars[i/2], Character=chars[i/2] };
             uint written;

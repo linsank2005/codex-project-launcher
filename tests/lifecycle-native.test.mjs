@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { copyFile, writeFile, unlink } from 'node:fs/promises';
+import { copyFile, writeFile, unlink, readFile } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { createPanelServer } from '../src/panel.mjs';
@@ -13,6 +13,42 @@ import { tempDir, waitForFile } from './helpers.mjs';
 
 const run = promisify(execFile), quote = s => "'" + s.replace(/'/g, "''") + "'";
 const native = { skip: process.platform !== 'win32', timeout: 120000 };
+
+test('console prompt reads return only English and Chinese text before the cursor', native, async () => {
+  const helper = await readFile(new URL('../src/stop-console.ps1', import.meta.url), 'utf8');
+  const code = helper.match(/Add-Type -TypeDefinition @'\r?\n([\s\S]*?)\r?\n'@/)[1];
+  const probe = String.raw`
+public static class PromptProbe {
+    [DllImport("kernel32.dll")] static extern bool AllocConsole();
+    [DllImport("kernel32.dll", CharSet=CharSet.Unicode)] static extern IntPtr CreateFile(string name, uint access, uint share, IntPtr security, uint creation, uint flags, IntPtr template);
+    [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr handle);
+    [DllImport("kernel32.dll", CharSet=CharSet.Unicode)] static extern bool WriteConsole(IntPtr handle, string text, uint length, out uint written, IntPtr reserved);
+    [DllImport("kernel32.dll")] static extern bool GetConsoleScreenBufferInfo(IntPtr handle, out ProjectDockStop.Screen info);
+    [DllImport("kernel32.dll")] static extern bool SetConsoleCursorPosition(IntPtr handle, ProjectDockStop.Coord position);
+    public static void Check() {
+        ProjectDockStop.FreeConsole();
+        if (!AllocConsole()) throw new Exception("Could not allocate the test console.");
+        var handle = CreateFile("CONOUT$", 0xC0000000, 3, IntPtr.Zero, 3, 0, IntPtr.Zero);
+        try {
+            foreach (var prompt in new[] { "Terminate batch job (Y/N)?", "终止批处理操作吗(Y/N)?", "终止批处理作业吗（Y/N）？", "Other question (Y/N)?" }) {
+                uint written; ProjectDockStop.Screen info;
+                if (!SetConsoleCursorPosition(handle, new ProjectDockStop.Coord()) || !WriteConsole(handle, prompt, (uint)prompt.Length, out written, IntPtr.Zero) ||
+                    written != prompt.Length || !GetConsoleScreenBufferInfo(handle, out info) ||
+                    !WriteConsole(handle, " unread trailing text", 21, out written, IntPtr.Zero) || !SetConsoleCursorPosition(handle, info.Cursor)) throw new Exception("Could not prepare the test prompt.");
+                for (int i=0; i<32; i++) {
+                    var actual = ProjectDockStop.Prompt();
+                    if (prompt.StartsWith("Other")) { if (actual != null) throw new Exception("A custom question was accepted."); }
+                    else if (actual == null || actual[0] != prompt || actual[1] != info.Cursor.Y + ":" + info.Cursor.X) throw new Exception("Prompt text or cursor was changed by a repeated read.");
+                }
+            }
+        } finally { CloseHandle(handle); ProjectDockStop.FreeConsole(); }
+    }
+}
+`;
+  const script = `$ErrorActionPreference='Stop'; Add-Type -TypeDefinition @'\n${code}\n${probe}\n'@\n[PromptProbe]::Check(); 'PASS'`;
+  const { stdout } = await run(windowsPowerShellPath(), ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')], { windowsHide: true, timeout: 10000 }).catch(error => { throw new Error(error.stderr || 'Console probe failed.'); });
+  assert.match(stdout, /PASS/);
+});
 
 for (const kind of ['CMD', 'PowerShell file', 'PowerShell command', 'shortcut']) {
   test(`${kind}: panel stop/restart exits the service, restores launch records, and preserves another service`, native, async t => {
