@@ -16,5 +16,6 @@ description: 使用 Codex Project Launcher（项目启动台，原 Start Buttons
 - 入口路径未变时，下次启动读取当前文件。已运行程序是否热更新由原项目决定，必要时按原项目方式重启。
 - 只有用户明确要求停止或重启所选项目时，才通过稳定 ID 调用 `stop_shortcut` 或 `restart_shortcut`。先读取 `canStop` / `canRestart`；不能核验目标时说明 `stopReason`，不要强制结束或扩大到其他项目。
 - 停止会核验 PID、创建时间和终端内的进程归属，再发送正常 Ctrl+C；也可保存用户提供的 `stopCommand`，在原项目目录执行。停止命令和运行检查地址在修改其他字段时应保留。
+- 工具返回 `confirmation` 时，向用户显示 `prompt`，只在用户明确选择是或否后，用同一个停止/重启工具传入原 `id`、`confirmationToken=confirmation.token` 和布尔 `answer`。不要代替用户选择；点击弹窗会自动完成回传。`list_shortcuts` 的状态也可恢复待回答的确认。
 - 重启必须先确认业务进程退出，再次核验启动状态后调用原入口；停止失败不启动第二份。原项目不响应正常退出请求时，请用户在原窗口处理。
 - 启动关联记录保存在本机；面板重启后重新核验进程身份，不能仅凭旧回执声称运行中。面板连接中断不表示业务服务已经停止。

@@ -2,7 +2,7 @@
 
 **Codex 项目启动台**：把原有的启动脚本、快捷方式和 PowerShell 命令集中到一个面板，点击即可启动、查看状态、正常停止和重启。
 
-**v0.2.5 · Windows 10/11 · MIT**
+**v0.2.6 · Windows 10/11 · MIT**
 
 ![项目启动台：四个隔离演示项目](docs/assets/project-launcher-demo.png)
 
@@ -33,7 +33,7 @@
 
 ## 备用安装 / 独立运行
 
-从 [Releases](https://github.com/linsank2005/codex-project-launcher/releases/latest) 下载 `codex-project-launcher-0.2.5-windows.zip` 并解压：
+从 [Releases](https://github.com/linsank2005/codex-project-launcher/releases/latest) 下载 `codex-project-launcher-0.2.6-windows.zip` 并解压：
 
 - **安装到 Codex：** 安装 Node.js、PowerShell 7 和 [Codex CLI](https://developers.openai.com/codex/cli) 后，双击 **安装插件.cmd**。
 - **独立运行：** 安装 Node.js 和 PowerShell 7 后，双击 **启动面板.cmd**，打开本机 `http://127.0.0.1:47831/`。
@@ -52,6 +52,7 @@
 - 点击 **启动项目**；程序在自己的终端或窗口中运行。
 - 打开即显示已保存卡片，运行状态随后检查；检查完成前启动按钮暂不可用。状态每 5 秒自动更新，点击状态标记可查看检查原因。
 - 运行中的项目可以 **停止** 或 **重启**。如原项目需要专用停止命令，可在编辑中的“停止方式”填写。
+- CMD 出现标准 Y/N 关闭提问时，在启动台弹窗选择 **是，关闭** 或 **否，取消**；刷新后可点击卡片的“关闭确认”继续。选择否不会恢复已被 Ctrl+C 停止的服务，也不会继续重启。
 - 点击卡片 **⋯** 编辑或移除入口，移除不会删除项目文件。
 
 入口路径不变时，更新项目代码后无需重新添加。关闭面板不会关闭已经启动的项目；停止使用正常退出方式，原项目不响应时需要在原窗口处理。

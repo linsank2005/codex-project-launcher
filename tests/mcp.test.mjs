@@ -11,12 +11,17 @@ test('a relocated plugin loads over STDIO, returns its UI and calls shared local
   const dir = await tempDir(t), relocated = path.join(dir, 'installed plugin'), dataDir = path.join(dir, 'data');
   await cp('plugins/start-buttons', relocated, { recursive: true });
   const launched = [];
-  let blockChecks = false;
+  let blockChecks = false, running = false;
   const panel = await createPanelServer({ dataDir, port: 0, template: '<script>/*START_BUTTONS_CONFIG*/</script>',
     checkStatuses: async projects => {
       assert.equal(blockChecks, false, 'Opening the dashboard must not wait for process or port probes.');
-      return Object.fromEntries(projects.map(p => [p.id, { state: 'unknown', canLaunch: true }]));
-    }, launch: async p => { launched.push(p); return { accepted: true }; } });
+      return Object.fromEntries(projects.map(p => [p.id, { state: running ? 'running' : 'offline', canLaunch: !running, canStop: running }]));
+    }, launch: async p => { launched.push(p); running = true; return { accepted: true }; },
+    stop: async (p, options) => {
+      running = false;
+      return options.confirmation ? { stopped: true, cancelled: !options.answer }
+        : { stopped: false, confirmation: { prompt: 'Terminate batch job (Y/N)?', targetPid: 10, processes: [] } };
+    } });
   t.after(() => panel.close());
   const transport = new StdioClientTransport({ command: process.execPath, args: [path.join(relocated, 'dist/mcp.mjs')], env: { ...process.env, START_BUTTONS_DATA_DIR: dataDir }, stderr: 'pipe' });
   const client = new Client({ name: 'start-buttons-test', version: '1.0' });
@@ -33,7 +38,9 @@ test('a relocated plugin loads over STDIO, returns its UI and calls shared local
   for (const name of ['stop_shortcut', 'restart_shortcut']) {
     const tool = tools.find(t => t.name === name);
     assert.equal(tool.annotations.destructiveHint, true);
-    assert.deepEqual(Object.keys(tool.inputSchema.properties), ['id']);
+    assert.deepEqual(Object.keys(tool.inputSchema.properties), ['id', 'confirmationToken', 'answer']);
+    assert.deepEqual(tool.inputSchema.required, ['id']);
+    assert.equal(tool.inputSchema.properties.answer.type, 'boolean');
   }
   const open = tools.find(t => t.name === 'open_dashboard');
   const manifest = JSON.parse(await readFile(path.join(relocated, '.codex-plugin', 'plugin.json'), 'utf8'));
@@ -80,4 +87,11 @@ test('a relocated plugin loads over STDIO, returns its UI and calls shared local
   const missing = await client.callTool({ name: 'launch_shortcut', arguments: { id: 'unknown' } });
   assert.equal(missing.isError, true);
   assert.equal(launched.length, 1);
+  const pending = await client.callTool({ name: 'restart_shortcut', arguments: { id: saved.structuredContent.project.id } });
+  const question = pending.structuredContent.confirmation;
+  assert.match(question.prompt, /Y\/N/); assert.equal(launched.length, 1);
+  assert.equal((await client.callTool({ name: 'list_shortcuts', arguments: {} })).structuredContent.statuses[question.id].confirmation.token, question.token);
+  const cancelled = await client.callTool({ name: 'restart_shortcut', arguments: { id: question.id, confirmationToken: question.token, answer: false } });
+  assert.equal(cancelled.structuredContent.cancelled, true); assert.equal(launched.length, 1);
+  assert.equal((await client.callTool({ name: 'restart_shortcut', arguments: { id: question.id, confirmationToken: question.token, answer: true } })).isError, true);
 });

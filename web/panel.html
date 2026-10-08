@@ -41,6 +41,12 @@
     <p id="status-suggestion" class="detail-suggestion"></p>
     <small>最近检查：<span id="status-time"></span></small>
   </dialog>
+  <dialog id="stop-confirmation" aria-labelledby="stop-title" aria-describedby="stop-prompt stop-explanation">
+    <div class="dialog-head"><h2 id="stop-title">关闭确认</h2></div>
+    <p id="stop-prompt" class="detail-state"></p>
+    <p id="stop-explanation" class="detail-suggestion">原终端正在询问是否终止批处理。选择“否”会取消后续终止或重启，但不会恢复已经被 Ctrl+C 停止的服务；运行状态按实际进程更新。</p>
+    <div class="dialog-actions"><span class="spacer"></span><button type="button" id="stop-no" class="secondary" autofocus>否，取消</button><button type="button" id="stop-yes" class="primary">是，关闭</button></div>
+  </dialog>
   <script>window.START_BUTTONS_CONFIG = /*START_BUTTONS_CONFIG*/;</script>
   <script>/*START_BUTTONS_JS*/</script>
 </body>

@@ -9,6 +9,7 @@ let projects = [], editingId, app, removalPending = false;
 let projectKey, statuses = {}, refreshPromise;
 const cards = new Map(), pending = new Set();
 const pendingActions = new Map();
+let stopQuestion, answeringStop = false;
 const icons = [['🚀', '火箭'], ['🧮', '计算'], ['📝', '笔记'], ['📑', '文档'], ['📁', '文件夹'], ['📊', '图表'], ['🤖', '机器人'], ['🎬', '视频'], ['🎮', '游戏'], ['🌐', '网页'], ['🎨', '设计'], ['🛠️', '工具']];
 const text = (element, value) => { if (element.textContent !== value) element.textContent = value; };
 function notify(message, error = false, context = '') {
@@ -30,10 +31,11 @@ for (const [icon, label] of icons) {
 form.elements.icon.addEventListener('input', syncIcon);
 byId('version').textContent = VERSION;
 function updateStatuses() {
-  let running = 0, offline = 0, unknown = 0, starting = 0, disconnected = 0, checking = 0;
+  let running = 0, offline = 0, unknown = 0, starting = 0, disconnected = 0, checking = 0, confirming = 0;
   for (const project of projects) {
     const status = statuses[project.id] || { state: 'checking', label: '检查中', detail: '正在读取运行状态。', canLaunch: false };
-    if (status.label === '连接中断') disconnected++;
+    if (status.confirmation) confirming++;
+    else if (status.label === '连接中断') disconnected++;
     else if (status.state === 'checking') checking++;
     else if (status.state === 'running') running++; else if (status.state === 'offline') offline++; else if (status.label === '启动中') starting++; else unknown++;
     const card = cards.get(project.id);
@@ -43,16 +45,19 @@ function updateStatuses() {
     card.badge.title = status.detail || '';
     card.launch.disabled = pending.has(project.id) || status.canLaunch === false;
     const action = pendingActions.get(project.id) || status.operation;
-    text(card.launchLabel, action === 'stop' ? '停止中…' : action === 'restart' ? '重启中…' : pending.has(project.id) ? '正在发起启动…' : status.state === 'checking' ? '检查中…' : status.canLaunch === false ? (status.state === 'running' ? '已运行' : status.label === '启动中' ? '启动中…' : '暂不能启动') : '启动项目');
+    text(card.launchLabel, status.confirmation ? '等待关闭确认' : action === 'stop' ? '停止中…' : action === 'restart' ? '重启中…' : pending.has(project.id) ? '正在发起启动…' : status.state === 'checking' ? '检查中…' : status.canLaunch === false ? (status.state === 'running' ? '已运行' : status.label === '启动中' ? '启动中…' : '暂不能启动') : '启动项目');
     card.launch.title = status.launchBlockReason || '';
     card.controls.hidden = status.state !== 'running' && !action;
-    card.stop.disabled = pending.has(project.id) || !status.canStop;
-    card.restart.disabled = pending.has(project.id) || !status.canRestart;
+    text(card.stop, status.confirmation ? '关闭确认' : '停止');
+    card.stop.setAttribute('aria-label', `${status.confirmation ? '关闭确认' : '停止'} ${project.name}`);
+    card.stop.disabled = pending.has(project.id) || (!status.confirmation && !status.canStop);
+    card.restart.disabled = pending.has(project.id) || Boolean(status.confirmation) || !status.canRestart;
     card.stop.title = card.restart.title = status.stopReason || '';
   }
   const summary = [{ state: 'running', label: '运行中', count: running },
     { state: 'offline', label: '未运行', count: offline },
     { state: 'starting', label: '启动中', count: starting },
+    { state: 'unknown', label: '关闭确认', count: confirming },
     { state: 'unknown', label: '待确认', count: unknown },
     { state: 'disconnected', label: '连接中断', count: disconnected },
     { state: 'checking', label: '检查中', count: checking }].filter(s => s.count || (s.state === 'running' && !checking));
@@ -77,7 +82,8 @@ function renderStatusDetail(id) {
   text(byId('status-label'), status?.label || '检查中');
   text(byId('status-detail'), status?.detail || '正在读取运行状态。');
   text(byId('status-time'), status?.checkedAt ? new Date(status.checkedAt).toLocaleString('zh-CN', { hour12: false }) : '尚未取得最新检查结果');
-  const suggestion = !status ? '正在检查项目状态，请稍候。' : status.label === '连接中断' ? '刷新面板重新连接；连接中断并不表示项目已经关闭。'
+  const suggestion = !status ? '正在检查项目状态，请稍候。' : status.confirmation ? '点击卡片的“关闭确认”，在启动台选择是或否。'
+    : status.label === '连接中断' ? '刷新面板重新连接；连接中断并不表示项目已经关闭。'
     : status?.state === 'unknown' ? '可在编辑中填写本地服务地址；如检查超时，请稍后重新检查。'
     : status?.state === 'running' && !status.canStop ? status.stopReason || '请在原窗口退出，或填写原项目的停止命令。'
     : status?.state === 'running' ? '可请求正常停止；重启会先等待业务进程退出。' : '项目未运行，可以从卡片启动。';
@@ -112,6 +118,35 @@ function toolData(result) {
   if (!value) throw new Error('未收到面板数据，请刷新面板。');
   return JSON.parse(value);
 }
+function showStopQuestion(project, confirmation) {
+  stopQuestion = { project, ...confirmation };
+  text(byId('stop-title'), `${project.name} · 关闭确认`);
+  text(byId('stop-prompt'), confirmation.prompt);
+  if (!byId('stop-confirmation').open) byId('stop-confirmation').showModal();
+}
+async function answerStop(answer) {
+  if (!stopQuestion || answeringStop) return;
+  const question = stopQuestion;
+  answeringStop = true;
+  byId('stop-no').disabled = byId('stop-yes').disabled = true;
+  pending.add(question.id); pendingActions.set(question.id, question.operation); updateStatuses();
+  try {
+    const result = await call(question.operation + '_shortcut', { id: question.id, confirmationToken: question.token, answer });
+    if (result.confirmation) showStopQuestion(question.project, result.confirmation);
+    else { stopQuestion = undefined; byId('stop-confirmation').close(); }
+    if (byId('notice').dataset.context === 'operation') byId('notice').hidden = true;
+  } catch (error) {
+    stopQuestion = undefined; byId('stop-confirmation').close();
+    notify(`${question.project.name}：${error.message}`, true, 'operation');
+  } finally {
+    answeringStop = false;
+    byId('stop-no').disabled = byId('stop-yes').disabled = false;
+    pending.delete(question.id); pendingActions.delete(question.id); updateStatuses(); refresh();
+  }
+}
+byId('stop-yes').addEventListener('click', () => answerStop(true));
+byId('stop-no').addEventListener('click', () => answerStop(false));
+byId('stop-confirmation').addEventListener('cancel', event => { event.preventDefault(); void answerStop(false); });
 function render(data) {
   if (!Array.isArray(data?.projects)) return;
   if (data.statuses) statuses = data.statuses;
@@ -163,10 +198,14 @@ function render(data) {
       button.type = 'button'; button.className = 'secondary'; button.textContent = label;
       button.setAttribute('aria-label', `${label} ${project.name}`);
       button.addEventListener('click', async () => {
+        if (!pending.has(project.id) && statuses[project.id]?.confirmation) {
+          showStopQuestion(project, statuses[project.id].confirmation); return;
+        }
         if (pending.has(project.id) || !statuses[project.id]?.[action === 'stop' ? 'canStop' : 'canRestart']) return;
         pending.add(project.id); pendingActions.set(project.id, action); updateStatuses();
         try {
-          await call(action + '_shortcut', { id: project.id });
+          const result = await call(action + '_shortcut', { id: project.id });
+          if (result.confirmation) showStopQuestion(project, result.confirmation);
           if (byId('notice').dataset.context === 'operation') byId('notice').hidden = true;
         } catch (error) { notify(`${project.name}：${error.message}`, true, 'operation'); }
         finally { pending.delete(project.id); pendingActions.delete(project.id); updateStatuses(); refresh(); }

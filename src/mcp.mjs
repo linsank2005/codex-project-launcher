@@ -43,8 +43,8 @@ server.registerTool('launch_shortcut', {
   title: '启动已保存项目', description: '通过 Windows 启动用户选择的已有文件或 PowerShell 命令。项目在自己的终端或应用窗口中运行。', inputSchema: { id: z.string() }, annotations: write, _meta: { ui: { visibility: ['model', 'app'] } },
 }, safe(args => panelCall('launch', args)));
 for (const [name, endpoint, title] of [['stop_shortcut', 'stop', '停止已保存项目'], ['restart_shortcut', 'restart', '重启已保存项目']]) {
-  server.registerTool(name, { title, description: '仅处理用户明确选择的已保存项目。核验进程归属后请求正常退出；重启必须先确认业务进程退出，不强制结束。',
-    inputSchema: { id: z.string() }, annotations: { ...write, destructiveHint: true }, _meta: { ui: { visibility: ['model', 'app'] } } },
+  server.registerTool(name, { title, description: '仅处理用户明确选择的已保存项目。核验进程归属后正常退出；遇 CMD Y/N 返回 confirmation，只有用户选择后才用其 token 和布尔 answer 继续。重启等待退出及确认完成，不强制结束。',
+    inputSchema: { id: z.string(), confirmationToken: z.string().regex(/^[a-f0-9]{64}$/).optional(), answer: z.boolean().optional() }, annotations: { ...write, destructiveHint: true }, _meta: { ui: { visibility: ['model', 'app'] } } },
   safe(args => panelCall(endpoint, args)));
 }
 // SDK 1.31 accepts icons in the protocol but drops them in registerTool().

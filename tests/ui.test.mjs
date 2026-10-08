@@ -22,6 +22,7 @@ async function embeddedPanel(hostContext, { initialData, connect } = {}) {
     async callServerTool(input) {
       calls.push(input);
       if (this.fail || this.failTool === input.name) throw new Error(this.errorMessage || 'connection failed');
+      if (this.handler) return { structuredContent: await this.handler(input) };
       return { structuredContent: this.data || { projects: [] } };
     }
   }
@@ -93,6 +94,60 @@ test('stop and restart are available only for verified projects and call the sel
     statuses: { a: { state: 'running', label: '运行中', canStop: false, canRestart: false } } } });
   const next = view.get('grid').children[0].children.find(c => c.className === 'lifecycle-actions');
   await next.children[1].listeners.click();
+  assert.equal(view.calls.filter(c => c.name === 'restart_shortcut').length, 0);
+});
+
+for (const action of ['stop', 'restart']) {
+  for (const choice of ['yes', 'no', 'escape']) {
+    test(`${action}: console confirmation waits for the user and sends ${choice} to the same operation`, async () => {
+      const view = await embeddedPanel(), project = { id: 'a', name: 'Fixture', type: 'command', command: 'original' };
+      const question = { id: 'a', token: 'a'.repeat(64), prompt: 'Terminate batch job (Y/N)?', operation: action };
+      view.app.data = { projects: [project], statuses: { a: { state: 'running', label: '运行中', canLaunch: false, canStop: true, canRestart: true } } };
+      view.app.ontoolresult({ structuredContent: view.app.data });
+      view.app.handler = input => {
+        if (input.name === 'list_shortcuts') return view.app.data;
+        if (input.arguments.confirmationToken) {
+          assert.equal(input.name, action + '_shortcut'); assert.equal(input.arguments.id, question.id);
+          assert.equal(input.arguments.confirmationToken, question.token); assert.equal(input.arguments.answer, choice === 'yes');
+          view.app.data.statuses.a = { state: 'offline', label: '未运行', canLaunch: true };
+          return { stopped: true, cancelled: choice !== 'yes' };
+        }
+        view.app.data.statuses.a = { state: 'offline', label: '等待关闭确认', canLaunch: false, operation: action, confirmation: question };
+        return { stopped: false, confirmation: question };
+      };
+      const controls = view.get('grid').children[0].children.find(n => n.className === 'lifecycle-actions');
+      await controls.children[action === 'stop' ? 0 : 1].listeners.click();
+      await new Promise(resolve => setImmediate(resolve));
+      assert.equal(view.get('stop-confirmation').open, true);
+      assert.equal(view.get('stop-prompt').textContent, question.prompt);
+      assert.equal(view.calls.filter(c => c.name === action + '_shortcut').length, 1, 'No answer is sent without a user choice.');
+      assert.equal(view.launchButton().disabled, true);
+      if (choice === 'escape') {
+        let prevented = false;
+        view.get('stop-confirmation').listeners.cancel({ preventDefault() { prevented = true; } });
+        assert.equal(prevented, true);
+      } else await view.get('stop-' + choice).listeners.click();
+      await new Promise(resolve => setImmediate(resolve));
+      assert.equal(view.get('stop-confirmation').open, false);
+      assert.equal(view.calls.filter(c => c.name === action + '_shortcut').length, 2);
+      assert.equal(view.calls.filter(c => c.name === 'launch_shortcut').length, 0);
+      assert.equal(view.launchButton().disabled, false);
+    });
+  }
+}
+
+test('refresh restores a pending question and opens it as plain text without resending Ctrl+C', async () => {
+  const view = await embeddedPanel();
+  const question = { id: 'a', token: 'a'.repeat(64), operation: 'restart', prompt: '<img src=x onerror=alert(1)> (Y/N)?' };
+  view.app.ontoolresult({ structuredContent: { projects: [{ id: 'a', name: 'Reopened', type: 'command' }],
+    statuses: { a: { state: 'offline', label: '等待关闭确认', canLaunch: false, operation: 'restart', confirmation: question } } } });
+  const controls = view.get('grid').children[0].children.find(n => n.className === 'lifecycle-actions');
+  assert.equal(controls.hidden, false); assert.equal(controls.children[0].textContent, '关闭确认');
+  assert.equal(controls.children[1].disabled, true);
+  await controls.children[0].listeners.click();
+  assert.equal(view.get('stop-confirmation').open, true);
+  assert.equal(view.get('stop-prompt').textContent, question.prompt);
+  assert.equal(view.get('stop-prompt').innerHTML, undefined);
   assert.equal(view.calls.filter(c => c.name === 'restart_shortcut').length, 0);
 });
 

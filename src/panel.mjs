@@ -21,6 +21,7 @@ export async function createPanelServer({ dataDir = getDataDir(), port = DEFAULT
   template ??= await readFile(path.join(root, 'panel.html'), 'utf8');
   const token = randomBytes(32).toString('hex');
   const inFlight = new Map();
+  const question = entry => ({ id: entry.id, token: entry.token, prompt: entry.confirmation.prompt, operation: entry.operation });
   const journal = new LaunchJournal(dataDir);
   await journal.load();
   const launches = journal.records;
@@ -42,8 +43,10 @@ export async function createPanelServer({ dataDir = getDataDir(), port = DEFAULT
         record.processes = status.observedProcesses; changed = true;
       }
       if (status) delete status.observedProcesses;
-      if (status && inFlight.has(launchKey(project))) Object.assign(status, { canLaunch: false, canStop: false, canRestart: false,
-        operation: inFlight.get(launchKey(project)), launchBlockReason: '项目操作尚未完成，请稍候。' });
+      const entry = inFlight.get(launchKey(project));
+      if (status && entry) Object.assign(status, { canLaunch: false, canStop: false, canRestart: false,
+        operation: entry.operation, launchBlockReason: '项目操作尚未完成，请稍候。',
+        ...(entry.confirmation ? { label: '等待关闭确认', detail: entry.confirmation.prompt, confirmation: question(entry) } : {}) });
     }
     if (changed) await journal.save();
     return statuses;
@@ -95,25 +98,48 @@ export async function createPanelServer({ dataDir = getDataDir(), port = DEFAULT
         res.once('finish', () => { void close(); });
         return json(200, { stopping: true });
       }
+      if (['/api/save', '/api/remove'].includes(pathname) && input?.id) {
+        const saved = (await store.list()).find(p => p.id === input.id);
+        if (saved && inFlight.has(launchKey(saved))) return json(409, { error: '此入口正在处理启动或停止，请完成操作后再编辑或移除。' });
+      }
       if (pathname === '/api/save') return json(200, { project: await store.save(input), ...await snapshot() });
       if (pathname === '/api/remove') { await store.remove(input.id); launches.delete(input.id); await journal.save(); return json(200, await snapshot()); }
       if (['/api/launch', '/api/stop', '/api/restart'].includes(pathname)) {
         const project = await store.get(input.id), key = launchKey(project);
-        if (inFlight.has(key)) return json(409, { error: '此入口正在处理启动或停止，请稍候。' });
         const operation = pathname.slice('/api/'.length);
-        inFlight.set(key, operation);
+        let entry = inFlight.get(key);
+        const answering = input.confirmationToken !== undefined || input.answer !== undefined;
+        if (answering) {
+          if (typeof input.answer !== 'boolean' || typeof input.confirmationToken !== 'string' || !/^[a-f0-9]{64}$/.test(input.confirmationToken)) return json(400, { error: '关闭确认参数不正确。' });
+          if (!entry?.confirmation || entry.id !== project.id || entry.operation !== operation || entry.token !== input.confirmationToken || entry.responding) return json(409, { error: '关闭确认已失效或正在处理，请刷新状态。' });
+        } else if (entry) {
+          if (entry.confirmation && entry.id === project.id && entry.operation === operation && !entry.responding) return json(200, { stopped: false, confirmation: question(entry) });
+          return json(409, { error: '此入口正在处理启动或停止，请稍候。' });
+        }
+        entry ??= { id: project.id, operation };
+        entry.responding = true;
+        inFlight.set(key, entry);
         try {
           // Check the underlying state before applying the operation lock to the UI.
           const status = (await checkStatuses([project], { launches: Object.fromEntries(launches) }))[project.id];
-          if (operation !== 'launch' && status?.state !== 'offline') {
-            if (!status?.canStop) return json(409, { error: status?.stopReason || '无法核验停止目标，请在原窗口退出。', status });
-            const stopped = await stop(project, { launches: Object.fromEntries(launches) });
+          if (answering || (operation !== 'launch' && status?.state !== 'offline')) {
+            if (!answering && !status?.canStop) return json(409, { error: status?.stopReason || '无法核验停止目标，请在原窗口退出。', status });
+            const stopped = await stop(project, { launches: Object.fromEntries(launches),
+              ...(answering ? { confirmation: entry.confirmation, answer: input.answer } : {}) });
+            if (stopped.confirmation) {
+              entry.confirmation = stopped.confirmation;
+              entry.token = randomBytes(32).toString('hex');
+              entry.responding = false;
+              return json(200, { stopped: false, confirmation: question(entry) });
+            }
+            delete entry.confirmation;
+            if (stopped.cancelled && !stopped.stopped) return json(200, stopped);
             if (!stopped.stopped) throw new Error('尚未确认业务进程退出，未重新启动。');
             const now = new Date().toISOString(), receipt = launches.get(project.id);
             launches.set(project.id, { ...receipt, accepted: true, settled: true, entryKey: key, at: now,
               stoppedAt: now, processes: [], message: stopped.message || '项目已停止。' });
             await journal.save();
-            if (operation === 'stop') return json(200, stopped);
+            if (stopped.cancelled || operation === 'stop') return json(200, stopped);
           } else if (operation === 'stop') return json(200, { stopped: true, message: '项目已停止，无需再次操作。' });
           const current = operation === 'restart' ? (await checkStatuses([project], { launches: Object.fromEntries(launches) }))[project.id] : status;
           if (current?.canLaunch === false || current?.state === 'running') return json(409, { error: current.launchBlockReason || '项目已在运行，请先关闭原程序。', status: current });
@@ -122,13 +148,14 @@ export async function createPanelServer({ dataDir = getDataDir(), port = DEFAULT
           await journal.save();
           return json(200, result);
         } catch (error) {
+          delete entry.confirmation;
           if ((await store.list()).some(p => p.id === input.id)) {
             launches.set(input.id, { ...launches.get(input.id), entryKey: key, message: error.message, error: true, at: new Date().toISOString() });
             await journal.save();
           }
           throw error;
         }
-        finally { inFlight.delete(key); }
+        finally { if (!entry.confirmation) inFlight.delete(key); }
       }
       return json(404, { error: '接口不存在。' });
     } catch (error) { if (!res.writableEnded) json(400, { error: error.message }); }

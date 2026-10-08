@@ -71,7 +71,12 @@ for (const kind of ['CMD', 'PowerShell file', 'PowerShell command', 'shortcut'])
         assert.equal(restored.launches[project.id].pid, first.pid);
       }
       await unlink(path.join(dir, 'ctrl-ready.json'));
-      const restarted = await call('restart', { id: project.id });
+      let restarted = await call('restart', { id: project.id });
+      if (kind === 'CMD') {
+        assert.match(restarted.confirmation.prompt, /Y\s*\/\s*N/i);
+        assert.equal(receipts.length, 1, 'Restart must wait for the console answer.');
+        restarted = await call('restart', { id: project.id, confirmationToken: restarted.confirmation.token, answer: true });
+      }
       assert.equal(restarted.accepted, true);
       const next = JSON.parse(await waitForFile(path.join(dir, 'ctrl-ready.json')));
       assert.notEqual(next.pid, ready.pid);
@@ -80,7 +85,12 @@ for (const kind of ['CMD', 'PowerShell file', 'PowerShell command', 'shortcut'])
       assert.equal((await fetch(`http://127.0.0.1:${next.port}/`)).status, 200);
       assert.equal((await call('projects')).statuses[project.id].canStop, true);
       await unlink(path.join(dir, 'ctrl-received.json'));
-      assert.equal((await call('stop', { id: project.id })).stopped, true);
+      let stopped = await call('stop', { id: project.id });
+      if (kind === 'CMD') {
+        assert.match(stopped.confirmation.prompt, /Y\s*\/\s*N/i);
+        stopped = await call('stop', { id: project.id, confirmationToken: stopped.confirmation.token, answer: true });
+      }
+      assert.equal(stopped.stopped, true);
       assert.equal(JSON.parse(await waitForFile(path.join(dir, 'ctrl-received.json'))).pid, next.pid);
       assert.equal((await call('projects')).statuses[project.id].state, 'offline');
       await assert.rejects(fetch(`http://127.0.0.1:${next.port}/`, { signal: AbortSignal.timeout(1000) }));
@@ -95,6 +105,45 @@ for (const kind of ['CMD', 'PowerShell file', 'PowerShell command', 'shortcut'])
     }
   });
 }
+
+test('CMD No is delivered to the real batch prompt, rejects changed targets, and cancels restart', native, async t => {
+  const dir = await tempDir(t), receipts = [];
+  await copyFile(new URL('./fixtures/ctrl-service.mjs', import.meta.url), path.join(dir, 'ctrl-service.mjs'));
+  const file = path.join(dir, 'start.cmd');
+  await writeFile(file, '@echo off\r\nnode.exe ctrl-service.mjs\r\necho continued>continued.txt\r\n');
+  const panel = await createPanelServer({ dataDir: path.join(dir, 'panel'), port: 0, template: '',
+    launch: async p => { const receipt = await launchProject(p, { windowStyle: 'Hidden' }); receipts.push(receipt); return receipt; } });
+  const call = async (route, input) => {
+    const response = await fetch(panel.info.url + 'api/' + route, { method: input ? 'POST' : 'GET',
+      headers: { 'Content-Type': 'application/json', 'x-start-buttons-token': panel.info.token }, body: input ? JSON.stringify(input) : undefined });
+    const data = await response.json(); assert.equal(response.status, 200, data.error); return data;
+  };
+  try {
+    const { project } = await call('save', { name: 'CMD cancel fixture', type: 'file', path: file });
+    await call('launch', { id: project.id });
+    const ready = JSON.parse(await waitForFile(path.join(dir, 'ctrl-ready.json')));
+    const observed = await call('projects');
+    const owned = (await inspectProjectProcesses(project, { launches: observed.launches })).owned.map(p => ({ pid: p.pid, born: p.born }));
+    const pending = await call('restart', { id: project.id });
+    const rootPid = receipts[0].pid;
+    const prompt = (await sendConsoleStop(rootPid, owned, { action: 'read' })).confirmation;
+    assert.match(prompt.prompt, /Y\s*\/\s*N/i);
+    await assert.rejects(sendConsoleStop(rootPid, owned, { action: 'answer', ...prompt, prompt: 'Changed question', answer: true }));
+    await assert.rejects(sendConsoleStop(rootPid, owned.map(p => p.pid === rootPid ? { ...p, born: '2000-01-01T00:00:00Z' } : p), { action: 'answer', ...prompt, answer: true }));
+    assert.equal((await sendConsoleStop(rootPid, owned, { action: 'read' })).confirmation.prompt, prompt.prompt);
+    const cancelled = await call('restart', { id: project.id, confirmationToken: pending.confirmation.token, answer: false });
+    assert.equal(cancelled.cancelled, true); assert.equal(receipts.length, 1);
+    assert.match(await waitForFile(path.join(dir, 'continued.txt')), /continued/);
+    assert.equal((await call('projects')).statuses[project.id].state, 'offline');
+    await assert.rejects(fetch(`http://127.0.0.1:${ready.port}/`, { signal: AbortSignal.timeout(1000) }));
+  } finally {
+    await panel.close();
+    for (const receipt of receipts) {
+      const cleanup = `$p=Get-CimInstance Win32_Process -Filter 'ProcessId=${receipt.pid}'; if ($p -and ([DateTimeOffset]$p.CreationDate).ToUnixTimeMilliseconds() -eq ([DateTimeOffset]::Parse(${quote(receipt.startedAt)})).ToUnixTimeMilliseconds()) { & taskkill.exe /PID ${receipt.pid} /T /F | Out-Null }`;
+      await run(windowsPowerShellPath(), ['-NoProfile', '-EncodedCommand', Buffer.from(cleanup, 'utf16le').toString('base64')], { windowsHide: true, timeout: 8000 });
+    }
+  }
+});
 
 test('an original stop command executes in the selected project directory and is verified before reporting exit', native, async t => {
   const dir = await tempDir(t);

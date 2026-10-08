@@ -47,6 +47,39 @@ test('unknown ownership or multiple consoles never receive a stop signal', async
   assert.equal(signals, 0);
 });
 
+test('a CMD question returns before exit and its answer continues the same console without another Ctrl+C', async () => {
+  const prompt = { prompt: 'Terminate batch job (Y/N)?', position: '4:26' };
+  const initial = await stopProject(project, { inspect: async () => ({ roots: [root], owned: [root, business], business: [business] }),
+    signal: async () => ({ confirmation: prompt }) });
+  assert.equal(initial.stopped, false);
+  assert.equal(initial.confirmation.targetPid, root.pid);
+  for (const answer of [true, false]) {
+    let signals = 0;
+    const result = await stopProject(project, { confirmation: initial.confirmation, answer,
+      signal: async (targetPid, expected, options) => {
+        signals++; assert.equal(targetPid, root.pid);
+        assert.deepEqual(expected, [root, business].map(p => ({ pid: p.pid, born: p.born })));
+        assert.equal(options.action, 'answer'); assert.equal(options.answer, answer); assert.equal(options.prompt, prompt.prompt);
+      }, inspect: async () => ({ roots: [], owned: [], business: [] }) });
+    assert.equal(signals, 1); assert.equal(result.stopped, true);
+    assert.equal(Boolean(result.cancelled), !answer);
+  }
+  await assert.rejects(stopProject(project, { confirmation: initial.confirmation, answer: 'Y', signal: async () => assert.fail('Invalid input must not reach the console.') }), /是或否/);
+});
+
+test('a prompt that appears after the first signal is still detected after business exit', async () => {
+  let checks = 0, signals = 0;
+  const result = await stopProject(project, { inspect: async () => ++checks === 1
+    ? { roots: [root], owned: [root, business], business: [business] } : { roots: [root], owned: [root], business: [] },
+    signal: async (pid, expected, options) => {
+      signals++;
+      if (!options) return { mayConfirm: true };
+      assert.equal(options.action, 'read');
+      return { confirmation: { prompt: 'Terminate batch job (Y/N)?', position: '4:26' } };
+    } });
+  assert.equal(result.stopped, false); assert.equal(signals, 2); assert.ok(result.confirmation);
+});
+
 test('an idle old terminal does not hide the single active terminal; two active terminals still block automatic stop', async () => {
   const p = { id: 'file', type: 'file', path: path.resolve('start.ps1') };
   const active = { ...root, command: `pwsh.exe -File "${p.path}"` };
@@ -99,6 +132,51 @@ test('restart does not launch after a failed stop or an occupied address', async
     assert.equal(calls, 0);
   }
 });
+
+for (const answer of [true, false]) {
+  test(`HTTP pending restart survives refresh, validates its answer, and ${answer ? 'restarts only after Yes' : 'never restarts after No'}`, async t => {
+    const dir = await tempDir(t); let running = true, stops = 0, launchCalls = 0;
+    const panel = await createPanelServer({ dataDir: dir, port: 0, template: '',
+      checkStatuses: async projects => Object.fromEntries(projects.map(p => [p.id, { state: running ? 'running' : 'offline', canLaunch: !running, canStop: running }])),
+      stop: async (p, options) => {
+        stops++;
+        if (options.confirmation) {
+          assert.equal(options.answer, answer); assert.equal(options.confirmation.targetPid, root.pid);
+          return { stopped: true, cancelled: !options.answer };
+        }
+        running = false;
+        return { stopped: false, confirmation: { prompt: 'Terminate batch job (Y/N)?', position: '4:26', targetPid: root.pid, processes: [root] } };
+      }, launch: async () => { launchCalls++; running = true; return { accepted: true }; } });
+    t.after(() => panel.close());
+    const saved = (await panelCall(panel, 'save', { ...project, name: 'confirm', cwd: dir })).data.project;
+    const alias = (await panelCall(panel, 'save', { ...project, id: 'alias', name: 'same entry', cwd: dir })).data.project;
+    const pending = (await panelCall(panel, 'restart', { id: saved.id })).data;
+    assert.equal(launchCalls, 0); assert.equal(pending.stopped, false);
+    const snapshot = (await panelCall(panel, 'projects')).data;
+    assert.equal(snapshot.statuses[saved.id].label, '等待关闭确认');
+    assert.equal(snapshot.statuses[alias.id].canLaunch, false);
+    assert.equal(snapshot.statuses[saved.id].confirmation.token, pending.confirmation.token);
+    assert.equal(pending.confirmation.processes, undefined, 'Only a server-side ownership record supplies console targets.');
+    assert.deepEqual((await panelCall(panel, 'restart', { id: saved.id })).data, pending);
+    assert.equal(stops, 1);
+    for (const route of ['launch', 'stop']) assert.equal((await panelCall(panel, route, { id: alias.id })).response.status, 409);
+    for (const route of ['save', 'remove']) assert.equal((await panelCall(panel, route, { ...saved, command: 'changed' })).response.status, 409);
+    assert.equal((await panelCall(panel, 'shutdown', { targetVersion: '99.0.0' })).response.status, 409);
+    const args = { id: saved.id, confirmationToken: pending.confirmation.token, answer };
+    assert.equal((await panelCall(panel, 'restart', { ...args, answer: 'Y' })).response.status, 400);
+    assert.equal((await panelCall(panel, 'restart', { ...args, confirmationToken: '0'.repeat(64) })).response.status, 409);
+    assert.equal((await panelCall(panel, 'stop', args)).response.status, 409);
+    assert.equal((await panelCall(panel, 'restart', { ...args, id: alias.id })).response.status, 409);
+    assert.equal(stops, 1);
+    const result = await panelCall(panel, 'restart', args);
+    assert.equal(result.response.status, 200); assert.equal(launchCalls, answer ? 1 : 0);
+    assert.equal(Boolean(result.data.cancelled), !answer);
+    assert.equal((await panelCall(panel, 'restart', args)).response.status, 409, 'An answer token cannot be replayed.');
+    const after = (await panelCall(panel, 'projects')).data;
+    assert.equal(after.statuses[saved.id].confirmation, undefined);
+    if (!answer) assert.equal(after.launches[saved.id].settled, true);
+  });
+}
 test('panel reload restores receipts, persists discovered descendants, and ignores changed entries', async t => {
   const dir = await tempDir(t);
   const options = { dataDir: dir, port: 0, template: '',
