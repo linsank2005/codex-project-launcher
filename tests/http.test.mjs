@@ -33,6 +33,33 @@ async function setup(t, launch, checkStatuses) {
   });
   return { ...panel, call, dataDir };
 }
+test('initial cards bypass slow status probes without bypassing launch verification or script escaping', async t => {
+  let checks = 0, release;
+  const panel = await setup(t, () => assert.fail('A running project must not launch.'), async projects => {
+    checks++;
+    if (checks === 1) await new Promise(resolve => { release = resolve; });
+    return Object.fromEntries(projects.map(p => [p.id, { state: 'running', canLaunch: false }]));
+  });
+  t.after(() => release?.());
+  const project = await panel.store.save({ name: '</script><img src=x>', type: 'command', command: 'original', cwd: panel.dataDir });
+  const initial = await (await panel.call('projects?initial=1')).json();
+  assert.equal(initial.projects[0].name, project.name);
+  assert.equal(initial.url, panel.info.url);
+  assert.equal(initial.statuses, undefined);
+  assert.equal(checks, 0);
+  const refresh = panel.call('projects');
+  while (!release) await new Promise(resolve => setImmediate(resolve));
+  const page = await (await fetch(panel.info.url)).text();
+  const config = JSON.parse(page.match(/window.START_BUTTONS_CONFIG = (.*);<\/script>/)[1]);
+  assert.equal(config.initialData.projects[0].name, project.name);
+  assert.ok(!page.includes(project.name), 'Project names cannot break out of the inline script.');
+  assert.equal(checks, 1, 'Opening a second view does not start another probe.');
+  release();
+  assert.equal((await (await refresh).json()).statuses[project.id].state, 'running');
+  assert.equal((await panel.call('launch', { id: project.id })).status, 409);
+  assert.equal(checks, 2, 'Launch always checks fresh state.');
+  assert.equal((await fetch(panel.info.url + 'api/projects?initial=1')).status, 403);
+});
 test('panel persists add/edit/remove and only launches the saved entry selected by ID', async t => {
   const launched = [], panel = await setup(t, async p => { launched.push(p); return { accepted: true }; });
   const saved = await (await panel.call('save', { name: '测试', type: 'command', command: 'original', cwd: panel.dataDir })).json();

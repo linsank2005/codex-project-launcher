@@ -1,6 +1,6 @@
 {
   "name": "start-buttons",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "Codex Project Launcher：集中管理 Windows 本地项目的原有启动入口。",
   "author": { "name": "Codex Project Launcher" },
   "skills": "./skills/",

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 
-async function embeddedPanel(hostContext) {
+async function embeddedPanel(hostContext, { initialData, connect } = {}) {
   const nodes = new Map(), calls = [], themes = [];
   function element() {
     return { textContent: '', dataset: {}, children: [], listeners: {}, classList: { toggle() {} },
@@ -17,7 +17,7 @@ async function embeddedPanel(hostContext) {
   let app;
   class HostApp {
     constructor() { app = this; }
-    async connect() {}
+    async connect() { await connect?.(); }
     getHostContext() { return hostContext; }
     async callServerTool(input) {
       calls.push(input);
@@ -28,11 +28,33 @@ async function embeddedPanel(hostContext) {
   // Execute the actual view against a minimal DOM and the MCP host boundary;
   // neither the renderer nor its notification handler is duplicated here.
   const source = (await readFile(new URL('../web/ui.mjs', import.meta.url), 'utf8')).replace(/^import .*;\r?\n/gm, '');
-  vm.runInContext(source, vm.createContext({ App: HostApp, applyDocumentTheme: theme => themes.push(theme), VERSION: 'test', window: { START_BUTTONS_CONFIG: { mode: 'mcp' } },
+  vm.runInContext(source, vm.createContext({ App: HostApp, applyDocumentTheme: theme => themes.push(theme), VERSION: 'test', window: { START_BUTTONS_CONFIG: { mode: 'mcp', initialData } },
     document: { getElementById: get, createElement: element, addEventListener() {} }, setInterval() {} }));
   await new Promise(resolve => setImmediate(resolve));
   return { app, get, calls, themes, launchButton: () => get('grid').children[0].children.find(c => c.className === 'launch') };
 }
+
+test('saved cards render before host connection, wait for verification and survive a late initial result', async () => {
+  const project = { id: 'a', name: 'First paint', type: 'command', command: 'original' };
+  let connected;
+  const view = await embeddedPanel(undefined, { initialData: { projects: [project] },
+    connect: () => new Promise(resolve => { connected = resolve; }) });
+  const card = view.get('grid').children[0], launch = view.launchButton();
+  assert.equal(view.get('count').textContent, '1 个项目快捷入口');
+  assert.equal(launch.disabled, true);
+  assert.equal(launch.children[0].textContent, '检查中…');
+  assert.deepEqual(view.get('running-summary').children.map(c => c.attributes['aria-label']), ['1 个检查中']);
+  await launch.listeners.click();
+  assert.equal(view.calls.length, 0, 'No operation runs before verification.');
+  view.app.data = { projects: [project], statuses: { a: { state: 'running', label: '运行中', canLaunch: false, canStop: true, canRestart: true } } };
+  connected(); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(view.calls.filter(c => c.name === 'list_shortcuts').length, 1);
+  assert.equal(view.get('grid').children[0], card);
+  assert.equal(card.children.find(c => c.className === 'lifecycle-actions').hidden, false);
+  view.app.ontoolresult({ structuredContent: { projects: [project], url: 'http://127.0.0.1:47831/' } });
+  assert.equal(launch.disabled, true);
+  assert.equal(launch.children[0].textContent, '已运行', 'A late initial result must not erase a newer status.');
+});
 
 test('embedded panel follows initial and changed host themes without resetting project cards', async () => {
   const view = await embeddedPanel({ theme: 'light' });

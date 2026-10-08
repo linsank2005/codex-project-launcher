@@ -5,8 +5,9 @@ import { z } from 'zod';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ensurePanel, panelCall } from './runtime.mjs';
+import { panelCall } from './runtime.mjs';
 import { pageHtml } from './panel.mjs';
+import { ProjectStore } from './store.mjs';
 import { VERSION } from './version.mjs';
 
 const entrypointIcons = [{ src: 'data:image/svg+xml;base64,' + (await readFile(new URL('../assets/sidebar-icon.svg', import.meta.url))).toString('base64'), mimeType: 'image/svg+xml', sizes: ['any'] }];
@@ -21,13 +22,14 @@ function result(data) { return { content: [{ type: 'text', text: JSON.stringify(
 function safe(handler) { return async args => { try { return result(await handler(args)); } catch (error) { return { isError: true, content: [{ type: 'text', text: error.message }] }; } }; }
 registerAppResource(server, 'start-buttons-panel', uri, {}, async () => ({ contents: [{
   uri, mimeType: RESOURCE_MIME_TYPE,
-  text: pageHtml(await readFile(path.join(path.dirname(fileURLToPath(import.meta.url)), 'panel.html'), 'utf8'), { mode: 'mcp' }),
+  text: pageHtml(await readFile(path.join(path.dirname(fileURLToPath(import.meta.url)), 'panel.html'), 'utf8'),
+    { mode: 'mcp', initialData: { projects: await new ProjectStore().list() } }),
   _meta: { ui: { prefersBorder: false, csp: { connectDomains: [], resourceDomains: [] } } },
 }] }));
 registerAppTool(server, 'open_dashboard', {
   title: '打开项目启动台', description: '显示所有已保存项目的快捷启动按钮。返回项目启动台及本地面板地址。', inputSchema: {}, annotations: readOnly,
   _meta: { ui: { resourceUri: uri }, 'openai/ui': { entrypoints: [{ type: 'global' }, { type: 'thread' }] } },
-}, safe(async () => ({ ...await panelCall('projects'), url: (await ensurePanel()).url })));
+}, safe(() => panelCall('projects?initial=1')));
 server.registerTool('list_shortcuts', { title: '读取项目快捷入口', description: '读取已保存的快捷入口，不启动项目。', inputSchema: {}, annotations: readOnly, _meta: { ui: { visibility: ['model', 'app'] } } }, safe(() => panelCall('projects')));
 server.registerTool('save_shortcut', {
   title: '保存项目快捷入口', description: '保存用户提供的已有启动文件或 PowerShell 命令，不执行该入口。', annotations: write,

@@ -11,7 +11,12 @@ test('a relocated plugin loads over STDIO, returns its UI and calls shared local
   const dir = await tempDir(t), relocated = path.join(dir, 'installed plugin'), dataDir = path.join(dir, 'data');
   await cp('plugins/start-buttons', relocated, { recursive: true });
   const launched = [];
-  const panel = await createPanelServer({ dataDir, port: 0, template: '<script>/*START_BUTTONS_CONFIG*/</script>', launch: async p => { launched.push(p); return { accepted: true }; } });
+  let blockChecks = false;
+  const panel = await createPanelServer({ dataDir, port: 0, template: '<script>/*START_BUTTONS_CONFIG*/</script>',
+    checkStatuses: async projects => {
+      assert.equal(blockChecks, false, 'Opening the dashboard must not wait for process or port probes.');
+      return Object.fromEntries(projects.map(p => [p.id, { state: 'unknown', canLaunch: true }]));
+    }, launch: async p => { launched.push(p); return { accepted: true }; } });
   t.after(() => panel.close());
   const transport = new StdioClientTransport({ command: process.execPath, args: [path.join(relocated, 'dist/mcp.mjs')], env: { ...process.env, START_BUTTONS_DATA_DIR: dataDir }, stderr: 'pipe' });
   const client = new Client({ name: 'start-buttons-test', version: '1.0' });
@@ -60,9 +65,15 @@ test('a relocated plugin loads over STDIO, returns its UI and calls shared local
   }
   const saved = await client.callTool({ name: 'save_shortcut', arguments: { name: 'MCP test', type: 'command', command: 'original', cwd: dataDir } });
   assert.equal(saved.isError, undefined);
+  blockChecks = true;
   const dashboard = await client.callTool({ name: 'open_dashboard', arguments: {} });
   assert.equal(dashboard.structuredContent.projects.length, 1);
   assert.equal(dashboard.structuredContent.url, panel.info.url);
+  assert.equal(dashboard.structuredContent.statuses, undefined);
+  const seededResource = await client.readResource({ uri: currentUri });
+  const config = JSON.parse(seededResource.contents[0].text.match(/window.START_BUTTONS_CONFIG = (.*);<\/script>/)[1]);
+  assert.equal(config.initialData.projects[0].id, saved.structuredContent.project.id);
+  blockChecks = false;
   const ack = await client.callTool({ name: 'launch_shortcut', arguments: { id: saved.structuredContent.project.id } });
   assert.equal(ack.structuredContent.accepted, true);
   assert.equal(launched.length, 1);

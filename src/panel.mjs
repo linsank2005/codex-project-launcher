@@ -4,7 +4,7 @@ import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ProjectStore, getDataDir } from './store.mjs';
-import { launchProject, openBrowser } from './launcher.mjs';
+import { launchProject } from './launcher.mjs';
 import { VERSION } from './version.mjs';
 import { checkProjectStatuses, launchKey } from './status.mjs';
 import { LaunchJournal } from './launch-journal.mjs';
@@ -48,9 +48,11 @@ export async function createPanelServer({ dataDir = getDataDir(), port = DEFAULT
     if (changed) await journal.save();
     return statuses;
   };
-  const snapshot = async () => {
+  const snapshot = async (initial = false) => {
     const projects = await store.list();
-    return { projects, statuses: await liveStatuses(projects), launches: Object.fromEntries(launches) };
+    // First paint only needs saved entries; lifecycle actions still check live state.
+    return initial ? { projects, url: info.url }
+      : { projects, statuses: await liveStatuses(projects), launches: Object.fromEntries(launches) };
   };
   let info, close, closePromise, closing = false;
   const server = http.createServer(async (req, res) => {
@@ -62,18 +64,19 @@ export async function createPanelServer({ dataDir = getDataDir(), port = DEFAULT
       const host = `127.0.0.1:${info.port}`;
       if (req.headers.host !== host) return json(403, { error: '不允许的面板地址。' });
       if (req.headers.origin && req.headers.origin !== `http://${host}`) return json(403, { error: '不允许跨站调用面板。' });
-      const pathname = new URL(req.url, `http://${host}`).pathname;
+      const url = new URL(req.url, `http://${host}`), pathname = url.pathname;
       if (req.method === 'GET' && pathname === '/') {
+        const initialData = await snapshot(true);
         res.writeHead(200, {
           'Content-Type': 'text/html; charset=utf-8',
           'Content-Security-Policy': "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; img-src data:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
         });
-        return res.end(pageHtml(template, { mode: 'local', token, url: info.url }));
+        return res.end(pageHtml(template, { mode: 'local', token, url: info.url, initialData }));
       }
       if (req.headers['x-start-buttons-token'] !== token) return json(403, { error: '面板授权已失效，请重新打开面板。' });
       if (closing) return json(503, { error: '面板正在更新，请重新打开插件。' });
       if (req.method === 'GET' && pathname === '/api/health') return json(200, { app: 'start-buttons', version: VERSION, dataDir });
-      if (req.method === 'GET' && pathname === '/api/projects') return json(200, await snapshot());
+      if (req.method === 'GET' && pathname === '/api/projects') return json(200, await snapshot(url.searchParams.get('initial') === '1'));
       if (req.method !== 'POST') return json(404, { error: '接口不存在。' });
       const chunks = [];
       let bodySize = 0;

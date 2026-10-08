@@ -6,6 +6,7 @@ description: 使用 Codex Project Launcher（项目启动台，原 Start Buttons
 使用 Codex Project Launcher（项目启动台，原 Start Buttons）的 MCP 工具。
 
 - 用户要打开图标面板时，调用 `open_dashboard`。如果当前宿主不显示 MCP Apps 界面，展示返回的本地 URL，或在 Codex 内置浏览器打开它。
+- `open_dashboard` 只读取入口以快速显示卡片，运行状态由界面随后检查；用户询问哪些项目正在运行时，调用 `list_shortcuts` 获取实时状态。
 - 添加或修改入口时，先依据用户提供的信息保存现有文件路径或 PowerShell 命令；不要改写业务项目的启动脚本。
 - 启动前读取已保存入口，通过稳定 ID 调用 `launch_shortcut`。名称有歧义时请用户选择。
 - 只有用户明确要求启动某项目时才执行其入口，不要为验证插件而启动真实业务项目。

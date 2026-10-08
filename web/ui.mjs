@@ -30,10 +30,11 @@ for (const [icon, label] of icons) {
 form.elements.icon.addEventListener('input', syncIcon);
 byId('version').textContent = VERSION;
 function updateStatuses() {
-  let running = 0, offline = 0, unknown = 0, starting = 0, disconnected = 0;
+  let running = 0, offline = 0, unknown = 0, starting = 0, disconnected = 0, checking = 0;
   for (const project of projects) {
-    const status = statuses[project.id] || { state: 'unknown', label: '检查中', detail: '正在读取运行状态。' };
+    const status = statuses[project.id] || { state: 'checking', label: '检查中', detail: '正在读取运行状态。', canLaunch: false };
     if (status.label === '连接中断') disconnected++;
+    else if (status.state === 'checking') checking++;
     else if (status.state === 'running') running++; else if (status.state === 'offline') offline++; else if (status.label === '启动中') starting++; else unknown++;
     const card = cards.get(project.id);
     if (!card) continue;
@@ -42,7 +43,7 @@ function updateStatuses() {
     card.badge.title = status.detail || '';
     card.launch.disabled = pending.has(project.id) || status.canLaunch === false;
     const action = pendingActions.get(project.id) || status.operation;
-    text(card.launchLabel, action === 'stop' ? '停止中…' : action === 'restart' ? '重启中…' : pending.has(project.id) ? '正在发起启动…' : status.canLaunch === false ? (status.state === 'running' ? '已运行' : status.label === '启动中' ? '启动中…' : '暂不能启动') : '启动项目');
+    text(card.launchLabel, action === 'stop' ? '停止中…' : action === 'restart' ? '重启中…' : pending.has(project.id) ? '正在发起启动…' : status.state === 'checking' ? '检查中…' : status.canLaunch === false ? (status.state === 'running' ? '已运行' : status.label === '启动中' ? '启动中…' : '暂不能启动') : '启动项目');
     card.launch.title = status.launchBlockReason || '';
     card.controls.hidden = status.state !== 'running' && !action;
     card.stop.disabled = pending.has(project.id) || !status.canStop;
@@ -53,7 +54,8 @@ function updateStatuses() {
     { state: 'offline', label: '未运行', count: offline },
     { state: 'starting', label: '启动中', count: starting },
     { state: 'unknown', label: '待确认', count: unknown },
-    { state: 'disconnected', label: '连接中断', count: disconnected }].filter(s => s.count || s.state === 'running');
+    { state: 'disconnected', label: '连接中断', count: disconnected },
+    { state: 'checking', label: '检查中', count: checking }].filter(s => s.count || (s.state === 'running' && !checking));
   const summaryNode = byId('running-summary'), key = JSON.stringify(summary);
   if (summaryNode.dataset.counts !== key) {
     summaryNode.dataset.counts = key;
@@ -75,7 +77,7 @@ function renderStatusDetail(id) {
   text(byId('status-label'), status?.label || '检查中');
   text(byId('status-detail'), status?.detail || '正在读取运行状态。');
   text(byId('status-time'), status?.checkedAt ? new Date(status.checkedAt).toLocaleString('zh-CN', { hour12: false }) : '尚未取得最新检查结果');
-  const suggestion = status?.label === '连接中断' ? '刷新面板重新连接；连接中断并不表示项目已经关闭。'
+  const suggestion = !status ? '正在检查项目状态，请稍候。' : status.label === '连接中断' ? '刷新面板重新连接；连接中断并不表示项目已经关闭。'
     : status?.state === 'unknown' ? '可在编辑中填写本地服务地址；如检查超时，请稍后重新检查。'
     : status?.state === 'running' && !status.canStop ? status.stopReason || '请在原窗口退出，或填写原项目的停止命令。'
     : status?.state === 'running' ? '可请求正常停止；重启会先等待业务进程退出。' : '项目未运行，可以从卡片启动。';
@@ -141,7 +143,7 @@ function render(data) {
     launch.append(launchLabel, arrow);
     launch.disabled = pending.has(project.id);
     launch.addEventListener('click', async () => {
-      if (pending.has(project.id) || statuses[project.id]?.canLaunch === false) return;
+      if (pending.has(project.id) || !statuses[project.id] || statuses[project.id].canLaunch === false) return;
       pending.add(project.id);
       pendingActions.set(project.id, 'launch');
       launch.disabled = true; launchLabel.textContent = '正在发起启动…';
@@ -233,6 +235,7 @@ byId('remove').addEventListener('click', async () => {
 });
 async function init() {
   try {
+    render(config.initialData);
     if (config.mode === 'mcp') {
       app = new App({ name: '项目启动台', version: VERSION });
       app.ontoolresult = result => {
