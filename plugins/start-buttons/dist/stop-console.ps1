@@ -9,6 +9,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
 public static class ProjectDockStop {
+    static string lastRead;
     [DllImport("kernel32.dll", SetLastError=true)] public static extern bool FreeConsole();
     [DllImport("kernel32.dll", SetLastError=true)] public static extern bool AttachConsole(uint processId);
     [DllImport("kernel32.dll", SetLastError=true)] public static extern uint GetConsoleProcessList([Out] uint[] ids, uint size);
@@ -42,6 +43,7 @@ public static class ProjectDockStop {
         try {
             Screen info;
             if (!GetConsoleScreenBufferInfo(handle, out info)) throw new InvalidOperationException("Cannot read console cursor.");
+            lastRead = "cursor=" + info.Cursor.Y + ":" + info.Cursor.X + ", size=" + info.Size.X + ":" + info.Size.Y;
             var start = new Coord { X = 0, Y = (short)Math.Max(0, info.Cursor.Y - 3) };
             var length = (uint)((info.Cursor.Y - start.Y) * info.Size.X + info.Cursor.X);
             if (length == 0 || length > 16384) return null;
@@ -59,7 +61,7 @@ public static class ProjectDockStop {
             if (!PeekConsoleInput(handle, queued, (uint)queued.Length, out read) || read == queued.Length) throw new InvalidOperationException("Cannot verify console input.");
             for (int i=0; i<read; i++) if (queued[i].Type == 1 && queued[i].Down != 0 && queued[i].Character != '\0') throw new InvalidOperationException("Console input is already pending; answer in the original window.");
             var current = Prompt();
-            if (current == null || current[0] != prompt || current[1] != position) throw new InvalidOperationException("Console prompt changed; no answer sent. Expected [" + prompt + "] at [" + position + "], current [" + (current == null ? "none" : string.Join(" | ", current)) + "].");
+            if (current == null || current[0] != prompt || current[1] != position) throw new InvalidOperationException("Console prompt changed; no answer sent. Expected [" + prompt + "] at [" + position + "], current [" + (current == null ? "none" : string.Join(" | ", current)) + "], " + lastRead + ".");
             var events = new Input[4]; var chars = new[] { yes ? 'Y' : 'N', '\r' };
             for (int i=0; i<events.Length; i++) events[i] = new Input { Type=1, Down=i%2 == 0 ? 1 : 0, Repeat=1, Key=(short)chars[i/2], Character=chars[i/2] };
             uint written;
